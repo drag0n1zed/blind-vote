@@ -1,0 +1,7 @@
+onlyBuiltDependencies:
+  - "@swc/core"
+  - esbuild
+  - spawn-sync
+
+packages:
+  - "wasm/pkg"
