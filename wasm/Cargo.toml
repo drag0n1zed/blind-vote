@@ -1,10 +1,10 @@
-[package]
-name = "blind-vote-wasm"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+resolver = "3"
+members = [
+    "bv-calc",
+    "bv-collect",
+    "bv-shared",
+]
 
-[lib]
-crate-type = ["cdylib"]
-
-[dependencies]
-wasm-bindgen = "0.2"
+[workspace.dependencies]
+bv-shared = { path = "bv-shared" }

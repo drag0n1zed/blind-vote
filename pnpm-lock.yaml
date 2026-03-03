@@ -8,9 +8,12 @@ importers:
 
   .:
     dependencies:
-      blind-vote-wasm:
+      bv-calc:
         specifier: workspace:*
-        version: link:wasm/pkg
+        version: link:wasm/bv-calc/pkg
+      bv-collect:
+        specifier: workspace:*
+        version: link:wasm/bv-collect/pkg
       vite-plugin-top-level-await:
         specifier: ^1.6.0
         version: 1.6.0(rollup@4.59.0)(vite@7.3.1(@types/node@25.3.3)(jiti@2.6.1))
@@ -22,7 +25,9 @@ importers:
         specifier: ^0.20.18
         version: 0.20.18(@types/node@25.3.3)(jiti@2.6.1)(rollup@4.59.0)
 
-  wasm/pkg: {}
+  wasm/bv-calc/pkg: {}
+
+  wasm/bv-collect/pkg: {}
 
 packages:
 

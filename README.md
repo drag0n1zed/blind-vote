@@ -1,86 +1,207 @@
-# System Design & Implementation Checklist: Blind-Vote Hivemind Research Extension
+None of this is the actual plan.
 
-**Document Purpose:** This serves as the architectural blueprint and exhaustive development checklist for a Manifest V3 browser extension built with WXT, TypeScript, and a Rust WebAssembly (WASM) core. The system is designed to pierce Reddit's Shadow DOM, hide social proof ("clout"), record double-blind voting behaviors, and passively map subreddit statistical baselines to calculate user-to-hivemind alignment.
+## Phase 1: Infrastructure & Configuration
 
-Note: Yes, this is AI generated. I was heavily involved in this. The best way to avoid getting replaced by it is to starting using it in your workflow.
+- [x] **WXT Scaffold:** WXT project initialized with pnpm workspace.
+- [x] **Manifest V3 (`wxt.config.ts`):**
+  - [x] `content_scripts` targeting `*://*.reddit.com/*` with `runAt: "document_start"`
+  - [x] `vite-plugin-wasm` and `vite-plugin-top-level-await` installed and configured
+- [x] **WASM Workspace (`/wasm`):** Three-crate Cargo workspace established:
+  - [x] `bv-shared` — core data model, no WASM-specific dependencies
+  - [x] `bv-collect` — content script WASM module
+  - [x] `bv-calc` — popup WASM module
+- [x] **WASM Link:** `node_modules/blind-vote-wasm` symlinked to `wasm/pkg`
+- [ ] **Storage Permission:** Declare `storage` in manifest permissions.
+- [ ] **Build Scripts:** Wire `wasm-pack build` for both `bv-collect` and `bv-calc` into
+  `package.json` dev/build scripts.
 
 ---
 
-## Phase 1: Infrastructure & Configuration (WXT & Vite)
-*   [x] **WXT Scaffold:** Initialize the Vite-based WXT project environment.
-*   [ ] **Manifest V3 Configuration (`wxt.config.ts`):**
-    *   [ ] Define `content_scripts` targeting `*://*.reddit.com/*` with `runAt: "document_start"`.
-    *   [ ] Add `"storage"` and `"unlimitedStorage"` permissions (essential to bypass the standard 5MB `browser.storage.local` quota for the binary archive).
-*   [ ] **WASM Build Pipeline:** Configure Vite plugins (e.g., `vite-plugin-wasm`, `vite-plugin-top-level-await`) to compile and bundle the `blind-vote-wasm` Rust crate.
+## Phase 2: Data Model (`bv-shared`)
 
-## Phase 2: Rust WASM Core & Data Modeling (The Binary Archive)
-*   [ ] **Crate Dependencies:** Add `serde`, `serde_wasm_bindgen`, `bincode` (for compact binary serialization), and `fxhash`/`twox-hash` ($O(1)$ fast non-cryptographic hashing).
-*   [ ] **Data Structures (Structs & Enums):**
-    *   [ ] `UserVote`: Trinary Enum (`Upvote`, `Downvote`, `NA`).
-    *   [ ] `VoteRecord`: Struct for Active Data (`post_hash: u64`, `sub_hash: u64`, `timestamp: u64`, `reddit_score: i32`, `upvote_ratio: f32`, `user_vote: UserVote`).
-    *   [ ] `BaselinePoint`: Struct for Passive Data (`post_hash: u64`, `sub_hash: u64`, `timestamp: u64`, `upvote_ratio: f32`).
-    *   [ ] `Archive`: The root State Engine struct containing `votes: Vec<VoteRecord>` (Sorted), `baseline: Vec<BaselinePoint>` (Sorted), and `guard: HashSet<u64>`.
-*   [ ] **Serialization Bridge:**
-    *   [ ] Write `Archive::to_bytes()` mapping the state to a `bincode` byte array (`Vec<u8>`).
-    *   [ ] Write `Archive::from_bytes(Uint8Array)` constructor for Ephemeral/Tab Lifecycle rehydration.
-*   [ ] **Hashing Utility:** Write a helper to strip Reddit base-36 prefixes (`t3_`, `t5_`) and hash the remaining string into a `u64` identifier.
+Pure Rust library crate. No `wasm_bindgen`, no `cdylib`. Internal dependency of both
+`bv-collect` and `bv-calc`. Contains all shared types and their core logic.
 
-## Phase 3: The Content Script (DOM Manipulation & Scrapers)
-*   [x] **Shadow Injection (CSS):**
-    *   [x] Write the declarative CSS string to hide clout: `[data-post-click-location="vote"] faceplate-number, span:has(> .icon-comment) + span, award-button { display: none !important; }`.
-    *   [x] Write the "Reveal" CSS using the Host selector: `:host(.is-revealed) ... { display: inline-block !important; }`.
-    *   [x] Implement a `MutationObserver` to watch for new `shreddit-post` (Host) elements.
-    *   [x] Write a function to safely pierce the `shadowRoot` and append the `<style>` tag.
-*   [ ] **Passive Scraper (The Baseline Vacuum):**
-    *   [ ] Attach an `IntersectionObserver` to visible `<shreddit-post>` elements.
-    *   [ ] Scrape: `post_id`, `subreddit_id`, `created-at` (Unix timestamp), and `upvote_ratio`.
-    *   [ ] Send payload to the WASM Passive Recorder.
-*   [ ] **Active Scraper (The Event Retargeter):**
-    *   [ ] Attach a global `click` listener on the `document`.
-    *   [ ] Utilize `event.composedPath()` to identify clicks on `button[upvote]` or `button[downvote]` deeply nested in the Shadow DOM.
-    *   [ ] Scrape the same identifiers, plus `faceplate-number` (raw clout) and the `aria-pressed` state.
-    *   [ ] Send payload to the WASM Active Recorder.
-    *   [ ] Hydrate the DOM by appending the `.is-revealed` class to the Host `shreddit-post`.
+**Dependencies:** `serde` (derive), `postcard` (alloc feature), `rustc-hash`
 
-## Phase 4: WASM Gatekeeper (Density Filtering & Immutable State)
-*   [ ] **The Write-Once Guard:** Upon receiving *any* payload, check the $O(1)$ `HashSet<u64>` guard. If `post_hash` exists, drop the operation (Immutable State protection).
-*   [ ] **Active Data Filtering (Votes):**
-    *   [ ] Calculate `Age = CurrentTime - PostTimestamp`.
-    *   [ ] Apply the < 24h / > 6mo rule: Force `user_vote = NA` to prevent highly volatile data from muddying the archive.
-    *   [ ] Execute an $O(\log n)$ `binary_search` to insert the `VoteRecord` into the `votes` Vector, preserving chronological sort.
-*   [ ] **Passive Data Filtering (Temporal Density Check):**
-    *   [ ] Execute an $O(\log n)$ `binary_search` on the `baseline` Vector for the current `sub_hash` spanning a 1-year window (`T ± 6 months`).
-    *   [ ] If `window.count() > 1067` (Statistical Significance Threshold achieved for that era), drop the payload to prevent Baseline Bloat.
-    *   [ ] If `< 1067`, execute $O(\log n)$ insertion into the `baseline` Vector.
-*   [ ] **Batch Persistence:** Implement a debounce/throttle in TypeScript to periodically pull the `Uint8Array` from WASM and execute `browser.storage.local.set`.
-*   [ ] **Multi-Tab Sync:** Implement `browser.storage.onChanged` to catch archive updates from other tabs and rehydrate the hot WASM instance.
+- [x] **`PostInfo` Struct:**
+  ```rust
+  pub struct PostInfo {
+      timestamp: u64,    // UNIX timestamp of post creation
+      post_score: u32,   // Net post karma (floors at 0 on Reddit's public API/UI)
+      upvote_ratio: f32, // Upvote fraction (0.0–1.0)
+  }
+  ```
 
-## Phase 5: WASM Analytics Engine (Math, Stats & The Popup)
-*   [ ] **Subreddit Opt-In Selection:** Expose a method returning unique `sub_hash` lists so the user can filter calculations by specific communities.
-*   [ ] **The 1,067 Nearest Neighbors Algorithm:**
-    *   [ ] For a given `VoteRecord` at time $T$, execute `binary_search` in the `baseline` Vector to find the closest temporal index.
-    *   [ ] Use a bidirectional Two-Pointer Expansion to slice the closest 1,067 points ($|T_{vote} - T_{base}|$).
-*   [ ] **Linear Decay Weighting (Kernel Density Estimation):**
-    *   [ ] Calculate maximum $\Delta t$ within the 1,067 sample.
-    *   [ ] Apply weight formula: $w_i = \max(0, \text{MaxDeltaT} - \Delta t_i)$.
-    *   [ ] Calculate Weighted Mean Clout: $\sum(w_i \times \text{upvote\_ratio}_i) / \sum(w_i)$.
-*   [ ] **Statistical Significance Validation:**
-    *   [ ] If the Two-Pointer Expansion hits vector boundaries and yields $n < 1067$, flag the calculation as lacking a **3% Margin of Error / 95% Confidence Level**.
-*   [ ] **Alignment & Independent Alpha:**
-    *   [ ] Compare the `UserVote` enum against the Weighted Mean Clout.
-    *   [ ] Calculate Subreddit Volatility (Standard Deviation of the KDE sample).
+- [x] **`Vote` Enum:**
+  ```rust
+  pub enum Vote {
+      Up(PostInfo),
+      Down(PostInfo),
+      NA,   // Age-filtered vote. PostInfo is not stored here — it was
+            // already captured independently by the Baseline Vacuum.
+  }
+  ```
 
-## Phase 6: The Popup Dashboard (Visualization & "Homework")
-*   [ ] **Ephemeral Initialization:** Fetch the Binary Blob from `browser.storage.local`, push to WASM constructor for full rehydration.
-*   [ ] **Render Metrics:**
-    *   [ ] Display "Global Alignment: X%".
-    *   [ ] Display "Independent Alpha" metrics.
-*   [ ] **Render Data Quality / Temporal Gaps:**
-    *   [ ] Display: *"X% of your votes were compared against a statistically significant baseline."*
-    *   [ ] Output "Homework" (Gaps): Calculate which months/years in specific subreddits require the user to "scroll and read more posts" to achieve $n \ge 1067$.
-    *   [ ] *UI Example:* "Progress: 840/1067 posts mapped for r/technology (Q3 2023)."
+- [x] **`Archive` Struct:**
+  ```rust
+  pub struct Archive {
+      votes: FxHashMap<String, Vote>, // post_id → Vote (write-once)
+      baseline_posts: Vec<PostInfo>,  // sorted by timestamp
+  }
+  ```
 
-## Phase 7: Data Sovereignty & Research Portability
-*   [ ] **Anonymized Export Pipeline:** Create a WASM method to strip all `post_hash` and `sub_hash` data, outputting a pure JSON string of temporal alignment percentages and volatilities.
-*   [ ] **Export UI:** Add a "Copy Research Data" button to the popup.
-*   [ ] **Database Wipe:** Implement a "Purge Archive" button that overwrites the `browser.storage.local` Binary Blob and nullifies the WASM memory state.
+- [x] **`Archive` impl:**
+  - [x] `new()` — default-initializes both fields
+  - [x] `to_vec() -> Vec<u8>` — postcard serialization
+  - [x] `from_bytes(bytes: &[u8]) -> Self` — postcard deserialization
+  - [x] `insert_vote(post_id: String, vote: Vote)` — write-once via `.entry().or_insert()`
+  - [x] `insert_baseline(post_info: PostInfo)` — O(log n) sorted insertion via
+    `partition_point()`
+
+---
+
+## Phase 3: WASM Bridges (`bv-collect` and `bv-calc`)
+
+Both are `cdylib` crates depending on `bv-shared` + `wasm_bindgen`. Each exposes a JS
+class named `Archive` (via `#[wasm_bindgen(js_name = "Archive")]`) wrapping an internal
+`ArchiveHandle` struct. Complex types (`PostInfo`, `Vote`) are constructed entirely on the
+Rust side and never cross the JS boundary — all parameters are primitives.
+
+### `bv-collect` — Content Script Interface
+
+- [x] `new()` — constructor
+- [x] `from_bytes(bytes: &[u8]) -> Self` — accepts `Uint8Array`, rehydrates from storage
+- [x] `to_vec() -> Vec<u8>` — returns `Uint8Array` for storage
+- [x] `insert_vote(post_id: String, direction: u8, timestamp: u64, post_score: u32,
+  upvote_ratio: f32)` — `direction`: `0`=Up, `1`=Down, `2`=NA
+- [x] `insert_baseline(timestamp: u64, post_score: u32, upvote_ratio: f32)`
+
+### `bv-calc` — Popup Interface
+
+- [ ] `from_bytes(bytes: &[u8]) -> Self` — rehydration (same pattern as `bv-collect`)
+- [ ] All analytics methods (see Phase 5)
+
+---
+
+## Phase 4: Content Script (DOM & Scrapers)
+
+### Shadow DOM Injection
+
+- [x] Declarative CSS string to hide clout elements within `shreddit-post` shadow roots:
+  ```css
+  [data-post-click-location="vote"] faceplate-number,
+  span:has(> .icon-comment) + span,
+  award-button { display: none !important; }
+  ```
+- [x] "Reveal" CSS toggled by host class:
+  ```css
+  :host(.is-revealed) ... { display: inline-block !important; }
+  ```
+- [x] `MutationObserver` watching for new `shreddit-post` host elements
+- [x] Function to safely pierce `shadowRoot` and append the `<style>` tag
+
+### Passive Scraper — Baseline Vacuum
+
+Fires for every visible post regardless of user interaction. Builds the statistical
+baseline over time.
+
+- [ ] `IntersectionObserver` on `<shreddit-post>` elements
+- [ ] Scrape `post_id`, `subreddit_id`, `created-at`, `post_score`, `upvote_ratio`
+- [ ] Load or create that subreddit's `Archive`:
+  ```typescript
+  const subrKey = `archive_${subrId}`;
+  const stored = await browser.storage.local.get(subrKey);
+  const archive = stored[subrKey]
+      ? Archive.from_bytes(new Uint8Array(stored[subrKey]))
+      : new Archive();
+  ```
+- [ ] **Density Guard (before insertion):** Check count within the ±6-month window of
+  the incoming timestamp. If `window.count() >= 1,067` for this subreddit/era, drop the
+  payload to prevent Baseline Bloat.
+- [ ] Call `archive.insert_baseline(timestamp, postScore, upvoteRatio)` if guard passes
+- [ ] Persist: `browser.storage.local.set({ [subrKey]: archive.to_vec() })`
+
+### Active Scraper — Vote Event Retargeter
+
+Fires only on deliberate user vote clicks. Records the user's judgment before clout
+is revealed.
+
+- [ ] Global `click` listener on `document`
+- [ ] `event.composedPath()` to identify `button[upvote]` / `button[downvote]` through
+  the Shadow DOM boundary
+- [ ] Scrape `post_id`, `subreddit_id`, `created-at`, `post_score`, `upvote_ratio`,
+  `aria-pressed` state (determines direction)
+- [ ] **Age Filter:** If post age < 24h or > 6 months, force `direction = 2` (NA) to
+  exclude volatile/stale data from vote records
+- [ ] Call `archive.insert_vote(postId, direction, timestamp, postScore, upvoteRatio)`
+- [ ] Persist archive back to `browser.storage.local`
+- [ ] Append `.is-revealed` class to the host `shreddit-post` element (triggers reveal CSS)
+
+### Multi-Tab Storage Sync
+
+- [ ] Debounced/throttled writes — batch persistence calls to avoid storage thrashing
+- [ ] `browser.storage.onChanged` listener — when another tab updates an
+  `archive_${subr_id}` key, rehydrate the current tab's hot WASM instance
+
+---
+
+## Phase 5: Analytics Engine (`bv-calc`)
+
+The popup instantiates up to 5 `Archive` objects in parallel (one per user-selected
+subreddit) and calls these methods on each. All computation happens in Rust.
+
+```typescript
+const subrIds = await getUserOptInList(); // up to 5
+const blobs = await browser.storage.local.get(subrIds.map(id => `archive_${id}`));
+const archives = subrIds.map(id =>
+    Archive.from_bytes(new Uint8Array(blobs[`archive_${id}`]))
+);
+// archives[0..4] → call stat methods → render
+```
+
+- [ ] **1,067 Nearest Neighbors:**
+  - [ ] For a given vote at time T, `binary_search` into `baseline_posts` for the nearest
+    temporal index
+  - [ ] Bidirectional two-pointer expansion collecting the closest 1,067 `PostInfo`
+    entries by |T_vote − T_base|
+
+- [ ] **Linear Decay Weighting (KDE):**
+  - [ ] MaxDeltaT = largest |T_vote − T_base| in the 1,067 sample
+  - [ ] Per-point weight: \(w_i = \max(0,\ \text{MaxDeltaT} - \Delta t_i)\)
+  - [ ] Weighted mean upvote ratio: \(\displaystyle\frac{\sum(w_i \times
+    \text{upvote\_ratio}_i)}{\sum w_i}\)
+
+- [ ] **Statistical Significance Flag:** If the two-pointer expansion hits a vector
+  boundary before reaching n = 1,067, flag the result as below the 3% margin of error /
+  95% confidence threshold.
+
+- [ ] **Alignment & Alpha:**
+  - [ ] Compare `Vote` variant against weighted mean upvote ratio → alignment bool
+  - [ ] Subreddit volatility = standard deviation of the KDE sample's upvote ratios
+
+- [ ] **Density / Gap Map:** For each subreddit, identify which monthly windows are below
+  n < 1,067 and return structured gap data for the "Homework" UI.
+
+---
+
+## Phase 6: Popup Dashboard
+
+- [ ] Subreddit opt-in selection UI (drives which archives are fetched and calculated)
+- [ ] **Global Alignment:** "X% of your votes aligned with the hivemind"
+- [ ] **Independent Alpha:** Per-subreddit deviation from hivemind mean
+- [ ] **Data Quality:** "X% of your votes were compared against a statistically
+  significant baseline"
+- [ ] **Homework / Gaps:** "Progress: 840/1,067 posts mapped for r/technology (Q3 2023)"
+  — tells the user which subreddit/era windows need more passive scrolling
+
+---
+
+## Phase 7: Data Sovereignty
+
+- [ ] **Anonymized Export:** `bv-calc` method that strips all post/subreddit identifiers
+  and returns a pure JSON string of temporal alignment percentages and volatilities
+- [ ] **"Copy Research Data" button** in popup UI
+- [ ] **"Purge Archive" button** — wipes all `archive_*` keys from
+  `browser.storage.local` and nullifies the in-memory WASM state
+```

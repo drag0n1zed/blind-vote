@@ -38,6 +38,7 @@ function injectStylesIntoShadow(host: Element) {
 
 export default defineContentScript({
   matches: ["*://*.reddit.com/*"],
+  runAt: "document_start",
 
   main(ctx) {
     const processPosts = () => {

@@ -4,8 +4,6 @@ import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 
 export default defineConfig({
-  srcDir: "src",
-
   vite: () => ({
     plugins: [wasm(), topLevelAwait()],
   }),
@@ -14,9 +12,17 @@ export default defineConfig({
     // Compile wasm
     "build:before": (wxt) => {
       execSync("wasm-pack build --target web", {
-        cwd: "./wasm",
+        cwd: "./wasm/bv-calc",
+        stdio: "inherit",
+      });
+      execSync("wasm-pack build --target web", {
+        cwd: "./wasm/bv-collect",
         stdio: "inherit",
       });
     },
+  },
+
+  manifest: {
+    permissions: ["storage", "unlimitedStorage"],
   },
 });

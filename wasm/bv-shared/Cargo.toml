@@ -1,0 +1,9 @@
+[package]
+name = "bv-shared"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serde = "1.0"
+rustc-hash = "2.1"
+postcard = { version = "1.0", features = [ "alloc" ] }

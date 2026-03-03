@@ -4,4 +4,5 @@ onlyBuiltDependencies:
   - spawn-sync
 
 packages:
-  - "wasm/pkg"
+  - "wasm/bv-calc/pkg"
+  - "wasm/bv-collect/pkg"
