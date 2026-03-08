@@ -1,3 +1,8 @@
+import { browser } from "wxt/browser";
+
+// TODO: create settings for this
+const ENABLED_SUBREDDITS = new Set(["rust", "sssdfg"]);
+
 const HIDE_VOTES = `
     /* Hide vote count */
     [data-post-click-location="vote"] faceplate-number {
@@ -23,8 +28,8 @@ const HIDE_VOTES = `
     }
 `;
 
-function injectStylesIntoShadow(host: Element) {
-  const shadow = host.shadowRoot;
+function injectStylesIntoShadow(post: Element) {
+  const shadow = post.shadowRoot;
   if (!shadow) return;
 
   // Avoid duplicate injections
@@ -38,17 +43,31 @@ function injectStylesIntoShadow(host: Element) {
 
 export default defineContentScript({
   matches: ["*://*.reddit.com/*"],
-  runAt: "document_start",
 
-  main(ctx) {
-    const processPosts = () => {
-      const posts = document.querySelectorAll(
-        "shreddit-post, shreddit-ad-post",
-      );
+  async main(ctx) {
+    const processedPostIds = new Set<string>();
 
-      posts.forEach((post) => {
+    const processPosts = async () => {
+      const posts = document.querySelectorAll("shreddit-post, shreddit-ad-post");
+
+      for (const post of posts) {
         injectStylesIntoShadow(post);
-      });
+
+        let postId = post.getAttribute("id");
+        if (!postId || processedPostIds.has(postId)) continue;
+
+        processedPostIds.add(postId);
+
+        // Get subreddit name, e.g. "sssdfg"
+        const sub = (post.getAttribute("subreddit-name") || "").toLowerCase();
+        if (!ENABLED_SUBREDDITS.has(sub)) continue;
+
+        try {
+          await browser.runtime.sendMessage({ type: "insert_baseline", sub, postId });
+        } catch (e) {
+          console.error(`Error processing post ${postId}`, e);
+        }
+      }
     };
 
     processPosts();
@@ -57,10 +76,18 @@ export default defineContentScript({
       processPosts();
     });
 
-    observer.observe(document.body, {
+    observer.observe(document.documentElement, {
       childList: true,
+      subtree: true,
     });
 
-    ctx.onInvalidated(() => observer.disconnect());
+    window.addEventListener("beforeunload", () => {
+      browser.runtime.sendMessage({ type: "save_dirty" }); // SAVE SAVE SAVE GO GO GO GO GO GO SAVE RIGHT NOW
+    });
+
+    ctx.onInvalidated(() => {
+      observer.disconnect();
+      browser.runtime.sendMessage({ type: "save_dirty" });
+    });
   },
 });

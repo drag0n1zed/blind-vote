@@ -8,12 +8,12 @@ importers:
 
   .:
     dependencies:
-      bv-calc:
+      bv-wasm:
         specifier: workspace:*
-        version: link:wasm/bv-calc/pkg
-      bv-collect:
-        specifier: workspace:*
-        version: link:wasm/bv-collect/pkg
+        version: link:wasm/pkg
+      idb-keyval:
+        specifier: ^6.2.2
+        version: 6.2.2
       vite-plugin-top-level-await:
         specifier: ^1.6.0
         version: 1.6.0(rollup@4.59.0)(vite@7.3.1(@types/node@25.3.3)(jiti@2.6.1))
@@ -28,6 +28,8 @@ importers:
   wasm/bv-calc/pkg: {}
 
   wasm/bv-collect/pkg: {}
+
+  wasm/pkg: {}
 
 packages:
 
@@ -989,6 +991,9 @@ packages:
 
   htmlparser2@10.1.0:
     resolution: {integrity: sha512-VTZkM9GWRAtEpveh7MSF6SjjrpNVNNVJfFup7xTY3UpFtm67foy9HDVXneLtFVt4pMz5kZtgNcvCniNFb1hlEQ==}
+
+  idb-keyval@6.2.2:
+    resolution: {integrity: sha512-yjD9nARJ/jb1g+CvD0tlhUHOrJ9Sy0P8T9MF3YaLlHnSRpwPfpTX0XIvpmw3gAJUmEu3FiICLBDPXVwyEvrleg==}
 
   immediate@3.0.6:
     resolution: {integrity: sha512-XXOFtyqDjNDAQxVfYxuF7g9Il/IbWmmlQg2MYKOH8ExIT1qg6xc4zyS3HaEEATgs1btfzxq15ciUiY7gjSXRGQ==}
@@ -2585,6 +2590,8 @@ snapshots:
       domhandler: 5.0.3
       domutils: 3.2.2
       entities: 7.0.1
+
+  idb-keyval@6.2.2: {}
 
   immediate@3.0.6: {}
 

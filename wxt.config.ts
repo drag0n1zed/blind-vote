@@ -12,17 +12,19 @@ export default defineConfig({
     // Compile wasm
     "build:before": (wxt) => {
       execSync("wasm-pack build --target web", {
-        cwd: "./wasm/bv-calc",
-        stdio: "inherit",
-      });
-      execSync("wasm-pack build --target web", {
-        cwd: "./wasm/bv-collect",
+        cwd: "./wasm",
         stdio: "inherit",
       });
     },
   },
 
   manifest: {
-    permissions: ["storage", "unlimitedStorage"],
+    permissions: ["storage"],
+    web_accessible_resources: [
+      {
+        matches: ["*://*.reddit.com/*"],
+        resources: ["/bv_wasm_bg.wasm"],
+      },
+    ],
   },
 });
