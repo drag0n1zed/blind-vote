@@ -68,8 +68,8 @@ pub enum Vote {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Archive {
     votes: FxHashMap<String, (Vote, PostData)>, // Post ID, (Vote, Post data)
-    baseline_posts: Vec<PostData>, // Sorted according to timestamp, see `insert_baseline()` below
-    dirty: bool,                   // Needs saving to DB?
+    baseline_posts: Vec<(String, PostData)>, // Sorted according to timestamp, see `insert_baseline()` below
+    dirty: bool,                             // Needs saving to DB?
 }
 
 #[wasm_bindgen]
@@ -99,13 +99,12 @@ impl Archive {
     }
 
     pub async fn insert_vote(&mut self, post_id: String, vote: Vote) -> Result<(), JsValue> {
-        let post_data = PostData::from_post_id(&post_id)
-            .await
-            .map_err(|error| JsValue::from_str(&error))?;
-
         let exists = self.votes.keys().any(|v| v == &post_id);
 
         if !exists {
+            let post_data = PostData::from_post_id(&post_id)
+                .await
+                .map_err(|error| JsValue::from_str(&error))?;
             self.votes.insert(post_id, (vote, post_data));
             self.dirty = true;
         }
@@ -113,17 +112,16 @@ impl Archive {
     }
 
     pub async fn insert_baseline(&mut self, post_id: String) -> Result<(), JsValue> {
-        let post_data = PostData::from_post_id(&post_id)
-            .await
-            .map_err(|error| JsValue::from_str(&error))?;
-
-        let exists = self.baseline_posts.iter().any(|p| p.name == post_data.name);
+        let exists = self.baseline_posts.iter().any(|(id, _)| id == &post_id);
 
         if !exists {
+            let post_data = PostData::from_post_id(&post_id)
+                .await
+                .map_err(|error| JsValue::from_str(&error))?;
             let idx = self
                 .baseline_posts
-                .partition_point(|p| p.created <= post_data.created);
-            self.baseline_posts.insert(idx, post_data);
+                .partition_point(|(_, p)| p.created <= post_data.created);
+            self.baseline_posts.insert(idx, (post_id, post_data));
             self.dirty = true;
         }
         Ok(())

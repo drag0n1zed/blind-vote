@@ -77,7 +77,9 @@ export default defineContentScript({
 
       for (const post of posts) {
         injectStylesIntoShadow(post);
+      }
 
+      for (const post of posts) {
         let postId = post.getAttribute("id");
         if (!postId || processedPostIds.has(postId)) continue;
 
@@ -88,6 +90,7 @@ export default defineContentScript({
         if (!ENABLED_SUBREDDITS.has(sub)) continue;
 
         try {
+          console.log(`inserting baseline post for ${postId} in ${sub}`);
           await browser.runtime.sendMessage({ type: "insert_baseline", sub, postId });
         } catch (e) {
           console.error(`Error processing post ${postId}`, e);
@@ -110,8 +113,65 @@ export default defineContentScript({
       browser.runtime.sendMessage({ type: "save_dirty" }); // SAVE SAVE SAVE GO GO GO GO GO GO SAVE RIGHT NOW
     });
 
+    /**
+     * Handles global click events to detect and record votes on enabled subreddits.
+     *
+     * Uses event delegation to capture clicks inside Shadow DOM boundaries via `composedPath()`.
+     * Identifies vote buttons by common attributes (upvote/downvote)
+     * and sends an `insert_vote` message to the background worker.
+     *
+     * @param event The native DOM click event.
+     */
+    const onVoteClick = async (event: Event) => {
+      const path = event.composedPath();
+
+      // Find the host post
+      const post = path.find((el) => el instanceof Element && el.tagName === "SHREDDIT-POST") as Element | undefined;
+
+      if (!post) return;
+
+      // Find if an upvote or downvote button was clicked
+      const button = path.find((el) => {
+        return el instanceof Element && (el.hasAttribute("upvote") || el.hasAttribute("downvote"));
+      }) as Element | undefined;
+
+      if (!button) return;
+
+      // Determine vote type
+      let voteType = Vote.NA;
+
+      if (button.hasAttribute("upvote")) {
+        voteType = Vote.Up;
+      } else if (button.hasAttribute("downvote")) {
+        voteType = Vote.Down;
+      }
+
+      if (voteType === Vote.NA) return;
+
+      const postId = post.getAttribute("id");
+      const sub = (post.getAttribute("subreddit-name") || "").toLowerCase();
+
+      // Only process if valid post and enabled sub
+      if (postId && sub && ENABLED_SUBREDDITS.has(sub)) {
+        try {
+          console.log(`inserting vote for ${postId} in ${sub}`);
+          await browser.runtime.sendMessage({
+            type: "insert_vote",
+            sub,
+            postId,
+            vote: voteType,
+          });
+        } catch (e) {
+          console.error(`Error sending vote for post ${postId}`, e);
+        }
+      }
+    };
+
+    document.addEventListener("click", onVoteClick);
+
     ctx.onInvalidated(() => {
       observer.disconnect();
+      document.removeEventListener("click", onVoteClick);
       browser.runtime.sendMessage({ type: "save_dirty" });
     });
   },

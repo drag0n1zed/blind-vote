@@ -3,7 +3,7 @@ import { get, set } from "idb-keyval";
 import { browser } from "wxt/browser";
 
 /** Delay before batching dirty archive writes to IndexedDB. */
-const SAVE_DEBOUNCE_MS = 2000;
+const SAVE_DEBOUNCE_MS = 10000;
 /** Minimum delay between queued archive mutation requests for a subreddit. */
 const REQUEST_INTERVAL_MS = 5000;
 /** Cooldown applied after the wasm layer reports a rate-limit error. */
@@ -61,10 +61,7 @@ function isRateLimitError(error: unknown): boolean {
  * @param task Async archive operation to execute.
  * @returns A promise that resolves after a successful run.
  */
-async function runWithRateLimitRetry(
-  sub: string,
-  task: () => Promise<void>,
-): Promise<void> {
+async function runWithRateLimitRetry(sub: string, task: () => Promise<void>): Promise<void> {
   while (true) {
     try {
       await task();
@@ -74,9 +71,7 @@ async function runWithRateLimitRetry(
         throw error;
       }
 
-      console.warn(
-        `Rate limited while processing r/${sub}. Retrying in ${RATE_LIMIT_COOLDOWN_MS / 1000} seconds...`,
-      );
+      console.warn(`Rate limited while processing r/${sub}. Retrying in ${RATE_LIMIT_COOLDOWN_MS / 1000} seconds...`);
       await sleep(RATE_LIMIT_COOLDOWN_MS);
     }
   }
@@ -193,31 +188,34 @@ export default defineBackground({
           await runWithRateLimitRetry(sub, () => archive.insert_baseline(postId));
           scheduleSave();
           await sleep(REQUEST_INTERVAL_MS);
-        }).then(() => {
-          sendResponse({ ok: true });
-        }).catch((error) => {
-          sendResponse({ ok: false, error: normalizeErrorMessage(error) });
-        });
+        })
+          .then(() => {
+            console.log(`Baseline post ${postId} for r/${sub} inserted`);
+            sendResponse({ ok: true });
+          })
+          .catch((error) => {
+            sendResponse({ ok: false, error: normalizeErrorMessage(error) });
+          });
 
         return true; // keep message channel open
       }
 
       if (message.type === "insert_vote") {
-        const { sub, postId, vote } = message;
+        const { sub, postId, vote }: { sub: string; postId: string; vote: Vote } = message;
 
-        // Enter queue
-        enqueueTask(sub, async () => {
-          await wasmReady;
-          const archive = await getOrLoadArchive(sub);
-          // vote is passed as a number matching the Vote enum
-          await runWithRateLimitRetry(sub, () => archive.insert_vote(postId, vote));
-          scheduleSave();
-          await sleep(REQUEST_INTERVAL_MS);
-        }).then(() => {
-          sendResponse({ ok: true });
-        }).catch((error) => {
-          sendResponse({ ok: false, error: normalizeErrorMessage(error) });
-        });
+        (async () => {
+          try {
+            await wasmReady;
+            const archive = await getOrLoadArchive(sub);
+            // vote is passed as a number matching the Vote enum
+            await runWithRateLimitRetry(sub, () => archive.insert_vote(postId, vote));
+            scheduleSave();
+            sendResponse({ ok: true });
+            console.log(`Vote for post ${postId} in r/${sub} inserted`);
+          } catch (error) {
+            sendResponse({ ok: false, error: normalizeErrorMessage(error) });
+          }
+        })();
 
         return true;
       }
