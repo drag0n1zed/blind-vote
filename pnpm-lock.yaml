@@ -25,10 +25,6 @@ importers:
         specifier: ^0.20.18
         version: 0.20.18(@types/node@25.3.3)(jiti@2.6.1)(rollup@4.59.0)
 
-  wasm/bv-calc/pkg: {}
-
-  wasm/bv-collect/pkg: {}
-
   wasm/pkg: {}
 
 packages:

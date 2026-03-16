@@ -1,8 +1,8 @@
 pub mod api;
 
-use std::{error::Error, sync::OnceLock};
+use std::sync::OnceLock;
 
-use reqwest::Client;
+use reqwest::{Client, StatusCode};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -10,6 +10,7 @@ use wasm_bindgen::prelude::*;
 use crate::api::{PostData, RedditResponse};
 
 static REDDIT_CLIENT: OnceLock<Client> = OnceLock::new();
+const RATE_LIMITED_ERROR: &str = "BLIND_VOTE_RATE_LIMITED";
 
 fn get_client() -> &'static Client {
     REDDIT_CLIENT.get_or_init(|| {
@@ -21,23 +22,35 @@ fn get_client() -> &'static Client {
 }
 
 impl PostData {
-    pub async fn from_post_id(post_id: &str) -> Result<Self, Box<dyn Error>> {
+    pub async fn from_post_id(post_id: &str) -> Result<Self, String> {
         // post_id: e.g. t3_1ht65gt
         let url = format!("https://api.reddit.com/api/info/?id={}", post_id);
 
-        let response = get_client().get(url).send().await?;
+        let response = get_client()
+            .get(url)
+            .send()
+            .await
+            .map_err(|error| format!("Request failed: {error}"))?;
+        let status = response.status();
 
-        if !response.status().is_success() {
-            return Err(format!("Request failed with status: {}", response.status()).into());
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            return Err(RATE_LIMITED_ERROR.to_string());
         }
 
-        let reddit_data = response.json::<RedditResponse>().await?;
+        if !status.is_success() {
+            return Err(format!("Request failed with status: {status}"));
+        }
+
+        let reddit_data = response
+            .json::<RedditResponse>()
+            .await
+            .map_err(|error| format!("Failed to parse Reddit response: {error}"))?;
 
         let post = reddit_data
             .data
             .children
             .first()
-            .ok_or("parse fail")?
+            .ok_or_else(|| "Failed to parse Reddit response: missing post data".to_string())?
             .data
             .clone();
         Ok(post)
@@ -88,7 +101,7 @@ impl Archive {
     pub async fn insert_vote(&mut self, post_id: String, vote: Vote) -> Result<(), JsValue> {
         let post_data = PostData::from_post_id(&post_id)
             .await
-            .map_err(|ref e| e.to_string())?;
+            .map_err(|error| JsValue::from_str(&error))?;
 
         let exists = self.votes.keys().any(|v| v == &post_id);
 
@@ -102,7 +115,7 @@ impl Archive {
     pub async fn insert_baseline(&mut self, post_id: String) -> Result<(), JsValue> {
         let post_data = PostData::from_post_id(&post_id)
             .await
-            .map_err(|ref e| e.to_string())?;
+            .map_err(|error| JsValue::from_str(&error))?;
 
         let exists = self.baseline_posts.iter().any(|p| p.name == post_data.name);
 

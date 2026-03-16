@@ -1,8 +1,20 @@
 import { browser } from "wxt/browser";
 
+/**
+ * Vote enum matching the Rust definition.
+ * 0 = Up, 1 = Down, 2 = NA
+ */
+enum Vote {
+  Up = 0,
+  Down = 1,
+  NA = 2,
+}
+
 // TODO: create settings for this
+/** Subreddits where blind-vote behavior is enabled. */
 const ENABLED_SUBREDDITS = new Set(["rust", "sssdfg"]);
 
+/** CSS injected into Reddit post shadow roots to hide vote and comment signals by default. */
 const HIDE_VOTES = `
     /* Hide vote count */
     [data-post-click-location="vote"] faceplate-number {
@@ -28,6 +40,11 @@ const HIDE_VOTES = `
     }
 `;
 
+/**
+ * Injects the blind-vote stylesheet into a post shadow root once.
+ *
+ * @param post Reddit post element that may expose a shadow root.
+ */
 function injectStylesIntoShadow(post: Element) {
   const shadow = post.shadowRoot;
   if (!shadow) return;
@@ -44,11 +61,19 @@ function injectStylesIntoShadow(post: Element) {
 export default defineContentScript({
   matches: ["*://*.reddit.com/*"],
 
+  /**
+   * Watches Reddit post elements, injects hiding styles, and records baselines for enabled subreddits.
+   *
+   * @param ctx Content script lifecycle context provided by WXT.
+   */
   async main(ctx) {
     const processedPostIds = new Set<string>();
 
+    /**
+     * Processes visible posts, injecting styles and sending unseen enabled posts to the background worker.
+     */
     const processPosts = async () => {
-      const posts = document.querySelectorAll("shreddit-post, shreddit-ad-post");
+      const posts = document.querySelectorAll("shreddit-post");
 
       for (const post of posts) {
         injectStylesIntoShadow(post);
