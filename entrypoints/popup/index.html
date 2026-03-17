@@ -1,6 +1,125 @@
 <!doctype html>
-<html>
-    <body>
-        <h1>Hello Extensions</h1>
-    </body>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blind Vote Settings</title>
+    <script type="module" src="./main.ts"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-width: 22rem;
+        background: #111827;
+        color: #f9fafb;
+      }
+
+      main {
+        padding: 1rem;
+      }
+
+      h1 {
+        margin: 0 0 0.5rem;
+        font-size: 1.1rem;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .description,
+      .hint,
+      #status {
+        color: #d1d5db;
+        font-size: 0.875rem;
+        line-height: 1.4;
+      }
+
+      form {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      label {
+        font-weight: 600;
+      }
+
+      textarea {
+        min-height: 11rem;
+        resize: vertical;
+        border: 1px solid #374151;
+        border-radius: 0.5rem;
+        background: #030712;
+        color: inherit;
+        padding: 0.75rem;
+        font: inherit;
+      }
+
+      textarea:focus,
+      button:focus {
+        outline: 2px solid #60a5fa;
+        outline-offset: 2px;
+      }
+
+      .actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      button {
+        border: 0;
+        border-radius: 999px;
+        background: #2563eb;
+        color: inherit;
+        cursor: pointer;
+        padding: 0.6rem 1rem;
+        font: inherit;
+        font-weight: 600;
+      }
+
+      button:disabled,
+      textarea:disabled {
+        cursor: wait;
+        opacity: 0.7;
+      }
+
+      #status[data-tone="success"] {
+        color: #86efac;
+      }
+
+      #status[data-tone="error"] {
+        color: #fca5a5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <form id="settings-form">
+        <h1>Blind Vote</h1>
+        <p class="description">
+          Choose which subreddits should hide vote signals until you vote. These settings are
+          saved in your browser.
+        </p>
+
+        <label for="subreddit-list">Enabled subreddits</label>
+        <textarea
+          id="subreddit-list"
+          name="subreddit-list"
+          spellcheck="false"
+          placeholder="rust&#10;programming"
+        ></textarea>
+
+        <p class="hint">Enter one subreddit per line. The <code>r/</code> prefix is optional.</p>
+        <div class="actions">
+          <button id="save-button" type="submit">Save settings</button>
+        </div>
+        <p id="status" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+  </body>
 </html>

@@ -1,4 +1,10 @@
 import { browser } from "wxt/browser";
+import {
+  ENABLED_SUBREDDITS_STORAGE_KEY,
+  getEnabledSubreddits,
+  normalizeSubredditName,
+  parseEnabledSubredditsValue,
+} from "../../lib/subreddit-settings";
 
 /**
  * Vote enum matching the Rust definition.
@@ -9,10 +15,6 @@ enum Vote {
   Down = 1,
   NA = 2,
 }
-
-// TODO: create settings for this
-/** Subreddits where blind-vote behavior is enabled. */
-const ENABLED_SUBREDDITS = new Set(["rust", "sssdfg"]);
 
 /** CSS injected into Reddit post shadow roots to hide vote and comment signals by default. */
 const HIDE_VOTES = `
@@ -41,16 +43,22 @@ const HIDE_VOTES = `
 `;
 
 /**
- * Injects the blind-vote stylesheet into a post shadow root once.
+ * Adds or removes the blind-vote stylesheet for a post shadow root.
  *
  * @param post Reddit post element that may expose a shadow root.
+ * @param enabled Whether blind-vote styles should be present for the post.
  */
-function injectStylesIntoShadow(post: Element) {
+function syncStylesInShadow(post: Element, enabled: boolean) {
   const shadow = post.shadowRoot;
   if (!shadow) return;
 
-  // Avoid duplicate injections
-  if (shadow.querySelector("style[data-blind-vote]")) return;
+  const existingStyle = shadow.querySelector("style[data-blind-vote]");
+  if (!enabled) {
+    existingStyle?.remove();
+    return;
+  }
+
+  if (existingStyle) return;
 
   const styleTag = document.createElement("style");
   styleTag.setAttribute("data-blind-vote", "true");
@@ -68,6 +76,9 @@ export default defineContentScript({
    */
   async main(ctx) {
     const processedPostIds = new Set<string>();
+    let enabledSubreddits = new Set<string>();
+
+    const isEnabledSubreddit = (subreddit: string) => enabledSubreddits.has(subreddit);
 
     /**
      * Processes visible posts, injecting styles and sending unseen enabled posts to the background worker.
@@ -76,38 +87,53 @@ export default defineContentScript({
       const posts = document.querySelectorAll("shreddit-post");
 
       for (const post of posts) {
-        injectStylesIntoShadow(post);
-      }
+        const sub = normalizeSubredditName(post.getAttribute("subreddit-name") || "");
+        const blindVoteEnabled = isEnabledSubreddit(sub);
 
-      for (const post of posts) {
-        let postId = post.getAttribute("id");
-        if (!postId || processedPostIds.has(postId)) continue;
+        syncStylesInShadow(post, blindVoteEnabled);
+
+        const postId = post.getAttribute("id");
+        if (!postId || !sub || !blindVoteEnabled || processedPostIds.has(postId)) continue;
 
         processedPostIds.add(postId);
-
-        // Get subreddit name, e.g. "sssdfg"
-        const sub = (post.getAttribute("subreddit-name") || "").toLowerCase();
-        if (!ENABLED_SUBREDDITS.has(sub)) continue;
 
         try {
           console.log(`inserting baseline post for ${postId} in ${sub}`);
           await browser.runtime.sendMessage({ type: "insert_baseline", sub, postId });
         } catch (e) {
+          processedPostIds.delete(postId);
           console.error(`Error processing post ${postId}`, e);
         }
       }
     };
 
-    processPosts();
+    enabledSubreddits = new Set(await getEnabledSubreddits());
+    await processPosts();
 
     const observer = new MutationObserver(() => {
-      processPosts();
+      void processPosts();
     });
 
     observer.observe(document.documentElement, {
       childList: true,
       subtree: true,
     });
+
+    const onStorageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] = (
+      changes,
+      areaName,
+    ) => {
+      if (areaName !== "local" || !changes[ENABLED_SUBREDDITS_STORAGE_KEY]) {
+        return;
+      }
+
+      enabledSubreddits = new Set(
+        parseEnabledSubredditsValue(changes[ENABLED_SUBREDDITS_STORAGE_KEY].newValue),
+      );
+      void processPosts();
+    };
+
+    browser.storage.onChanged.addListener(onStorageChanged);
 
     window.addEventListener("beforeunload", () => {
       browser.runtime.sendMessage({ type: "save_dirty" }); // SAVE SAVE SAVE GO GO GO GO GO GO SAVE RIGHT NOW
@@ -149,10 +175,10 @@ export default defineContentScript({
       if (voteType === Vote.NA) return;
 
       const postId = post.getAttribute("id");
-      const sub = (post.getAttribute("subreddit-name") || "").toLowerCase();
+      const sub = normalizeSubredditName(post.getAttribute("subreddit-name") || "");
 
       // Only process if valid post and enabled sub
-      if (postId && sub && ENABLED_SUBREDDITS.has(sub)) {
+      if (postId && sub && isEnabledSubreddit(sub)) {
         try {
           console.log(`inserting vote for ${postId} in ${sub}`);
           await browser.runtime.sendMessage({
@@ -172,6 +198,7 @@ export default defineContentScript({
     ctx.onInvalidated(() => {
       observer.disconnect();
       document.removeEventListener("click", onVoteClick);
+      browser.storage.onChanged.removeListener(onStorageChanged);
       browser.runtime.sendMessage({ type: "save_dirty" });
     });
   },
